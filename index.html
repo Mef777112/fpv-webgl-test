@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>FPV and UAV Simulator</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #231F20;
+      }
+      /* Fill the whole viewport and reflow on resize / fold / rotate */
+      /* Centre the canvas: it keeps a fixed aspect, so there is spare space
+         on two sides whenever the window does not match that aspect. */
+      #unity-container {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #unity-canvas {
+        display: block;
+        background: #231F20;
+      }
+      /* In fullscreen the canvas itself is the fullscreen element, so it has to
+         centre itself instead of relying on the container's flexbox. The UA style
+         gives it position:fixed with all insets 0, so margin:auto centres it once
+         the width and height are definite. Kept as two separate rules on purpose:
+         a selector list is all-or-nothing, so one prefix a browser does not know
+         would drop the standard selector with it. */
+      #unity-canvas:fullscreen {
+        margin: auto;
+        background: #231F20;
+      }
+      #unity-canvas:-webkit-full-screen {
+        margin: auto;
+        background: #231F20;
+      }
+      #unity-loading-bar {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        display: none;
+        text-align: center;
+      }
+      #unity-logo {
+        color: #fff;
+        font-family: sans-serif;
+        font-size: 14px;
+        margin-bottom: 12px;
+        opacity: 0.8;
+      }
+      #unity-progress-bar-empty {
+        width: 220px;
+        height: 12px;
+        margin: 0 auto;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.15);
+        overflow: hidden;
+      }
+      #unity-progress-bar-full {
+        width: 0%;
+        height: 100%;
+        background: #4fa3ff;
+        transition: width 0.1s ease-out;
+      }
+      #unity-warning {
+        position: absolute;
+        left: 50%;
+        top: 5%;
+        transform: translate(-50%);
+        background: white;
+        padding: 10px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="unity-container">
+      <canvas id="unity-canvas" tabindex="-1"></canvas>
+      <div id="unity-loading-bar">
+        <div id="unity-logo">Loading…</div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-warning"></div>
+    </div>
+    <script>
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var warningBanner = document.querySelector("#unity-warning");
+
+      function unityShowBanner(msg, type) {
+        function updateBannerVisibility() {
+          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+        }
+        var div = document.createElement('div');
+        div.innerHTML = msg;
+        warningBanner.appendChild(div);
+        if (type == 'error') div.style.background = 'red';
+        else {
+          if (type == 'warning') div.style.background = 'yellow';
+          setTimeout(function() {
+            warningBanner.removeChild(div);
+            updateBannerVisibility();
+          }, 5000);
+        }
+        updateBannerVisibility();
+      }
+
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/game.loader.js";
+      var config = {
+        dataUrl: buildUrl + "/game.data",
+        frameworkUrl: buildUrl + "/game.framework.js",
+        codeUrl: buildUrl + "/game.wasm",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "ToxicFamaluGames",
+        productName: "FPV and UAV Simulator",
+        productVersion: "0.2.0",
+        showBanner: unityShowBanner,
+      };
+
+      // The game UI is authored for 16:9 (Canvas Scaler reference 1920x1080) and its
+      // panels are anchored in fractions of the screen, so a browser window of any
+      // other shape squashes them and the layout starts to overlap. Standalone builds
+      // never show it because they run fullscreen at the monitor's native 16:9.
+      //
+      // So the canvas keeps 16:9 itself: we fit the largest 16:9 box into the window
+      // and centre it. The spare space becomes background-coloured bars instead of
+      // distortion. Change this constant if the UI is ever re-authored for another
+      // aspect.
+      var TARGET_ASPECT = 16 / 9;
+
+      function availableSize() {
+        // Fullscreen puts the canvas in the top layer, where the container's size no
+        // longer bounds it — measure the screen instead.
+        var full = document.fullscreenElement || document.webkitFullscreenElement;
+        if (full === canvas) {
+          return { w: window.innerWidth, h: window.innerHeight };
+        }
+        return { w: container.clientWidth, h: container.clientHeight };
+      }
+
+      // Keep the drawing buffer matched to the CSS size (accounting for DPR)
+      // so the picture never stretches or drifts when the window changes size.
+      function resizeCanvas() {
+        var area = availableSize();
+        var w = area.w;
+        var h = area.h;
+        if (w <= 0 || h <= 0) return;
+
+        if (w / h > TARGET_ASPECT) {
+          w = Math.round(h * TARGET_ASPECT);
+        } else {
+          h = Math.round(w / TARGET_ASPECT);
+        }
+
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
+
+        var dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+      }
+      window.addEventListener("resize", resizeCanvas);
+      window.addEventListener("orientationchange", resizeCanvas);
+      document.addEventListener("fullscreenchange", resizeCanvas);
+      document.addEventListener("webkitfullscreenchange", resizeCanvas);
+      resizeCanvas();
+
+      loadingBar.style.display = "block";
+
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = function () {
+        createUnityInstance(canvas, config, function (progress) {
+          progressBarFull.style.width = 100 * progress + "%";
+        }).then(function (unityInstance) {
+          loadingBar.style.display = "none";
+          resizeCanvas();
+        }).catch(function (message) {
+          alert(message);
+        });
+      };
+      document.body.appendChild(script);
+    </script>
+  </body>
+</html>
